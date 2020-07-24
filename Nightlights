@@ -1,0 +1,23 @@
+var nl2012 = ee.Image('NOAA/DMSP-OLS/NIGHTTIME_LIGHTS/F182012');
+var lights = nl2012.select('stable_lights');
+
+//Map.addLayer(nl2012, {}, 'nl2012');
+Map.addLayer(lights, {palette: '000000, 00FFFF, 99FF66'}, 'stable lights');
+
+var zones = lights.gt(30).add(lights.gt(55)).add(lights.gt(62));
+
+// Display the thresholded image as three distinct zones near Paris.
+var range = ['000000', 'FFFF66', 'FF9933', 'FF0000'];
+Map.setCenter(2.373, 48.8683, 5);
+//Map.addLayer(zones, {min: 0, max: 3, palette: range}, 'development zones');
+
+var HansenImage = ee.Image('UMD/hansen/global_forest_change_2013');
+var HansenMask = HansenImage.select('datamask');
+//datamask is default name for THAT database.
+var WaterLand = HansenMask.eq(1);
+//Picks only the 1 values from HansenMask [white]
+//0's (nodata) and 2's (water) are now 0's [black]
+
+//Masking process:
+var final = zones.mask(WaterLand);
+Map.addLayer(final, {palette: range}, 'World nightlights');

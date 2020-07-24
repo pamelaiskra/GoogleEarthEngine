@@ -1,0 +1,224 @@
+/*
+// ---------- HAZARD MAPS [BINAY WET/DRY] ------------
+
+//Images for all return periods. The image ID ('GME/images/...') allows it to be imported to any script in EE.
+var tr5   = ee.Image('GME/images/14065153276599341228-07964712130599098121');
+var tr10  = ee.Image('GME/images/14065153276599341228-04837184006656219688');
+var tr20  = ee.Image('GME/images/14065153276599341228-04069492940774464340');
+var tr50  = ee.Image('GME/images/14065153276599341228-05039038523903420493');
+var tr75  = ee.Image('GME/images/14065153276599341228-16047606221156071538');
+var tr100 = ee.Image('GME/images/14065153276599341228-17684923510499887976');
+var tr200 = ee.Image('GME/images/14065153276599341228-03025517013162710200');
+var tr250 = ee.Image('GME/images/14065153276599341228-13584681123402671005');
+var tr500 = ee.Image('GME/images/14065153276599341228-09738046941629979352');
+var tr1000= ee.Image('GME/images/14065153276599341228-04222244774565817296');
+
+//Each image contains -9999 (no inundation) and 999 (water body) values.
+//Create a function that maps only inundation depth values from a given "myimage"
+var GetFloodDepths = function(myimage)
+{
+  //Where "myimage" equals -9999 (no inundation), the function returns a 0. Otherwise return "myimage" values:
+  var Blank = myimage.where(myimage.eq(-9999), 0)
+  //Where "myimage" equals 999 (water body), the function returns a 0. Otherwise return "myimage" values.
+  //.and() returns 1 where there are values different from 0 in BOTH images.
+  .and(myimage.where(myimage.eq(999),0));
+  //Until now, we have a binary wet (1's)/dry (0's) map.
+  
+  //Leave only the 1's by masking the map with itself. 
+  //Where the image between parentheses has a 0, the image before the ".mask" will have no data.
+  var FloodDepths = Blank.mask(Blank);
+  
+  return FloodDepths;
+};
+
+//Apply the function to all maps.
+var TR5 = GetFloodDepths(tr5);
+var TR10 = GetFloodDepths(tr10);
+var TR20 = GetFloodDepths(tr20);
+var TR50 = GetFloodDepths(tr50);
+var TR75 = GetFloodDepths(tr75);
+var TR100 = GetFloodDepths(tr100);
+var TR200 = GetFloodDepths(tr200);
+var TR250 = GetFloodDepths(tr250);
+var TR500 = GetFloodDepths(tr500);
+var TR1000 = GetFloodDepths(tr1000);
+
+//Display the binary 50-year floodplain.
+Map.addLayer(TR50, {palette: '003D99, 4D94FF'}, 'Floodplain extension T= 50 years');
+print('Floodplain maps resolution [m]: ', TR50.projection().nominalScale());
+*/
+
+
+// ---------- EXPOSURE MAPS [BILLION CURRENT USD] ------------
+//COUNTRY BOUNDARIES
+//Load world country boundaries
+var Countries = ee.FeatureCollection('ft:1tdSwUL7MVpOauSgRzqVTOwdfy17KDbw-1d9omPw');
+
+//Create a polygon that intersects the countries in America with WorldPop data
+var polygonAmerica = ee.Geometry.Polygon([[ [-62.996, 11.805], [-64.6, 19.73], [-74.048, 20.555], [-79.277, 23.246], [-95.361, 22.436], [-101.338, 14.949], [-95.27, -4.73], [-72.25, -21.94], [-63.98, -20.39], [-51.68, -25.17], [-54.58, -33.72], [-44.38, -20.88], [-56.074, 4.215] ]]);
+//Obtain countries in America with WorldPop data by filtering the Countries FeatureCollection using the polygon
+var America = Countries.filterBounds(polygonAmerica);
+Map.addLayer(polygonAmerica, {}, 'polygonAmerica');
+Map.addLayer(America, {color: 'FF0000'}, 'American countries\' boundaries');
+//Create a polygon that intersects the countries in Africa with WorldPop data
+var polygonAfrica = ee.Geometry.Polygon([[  [-17.14, 9.16], [18.11, -38.75], [52.29, -19.55], [38.94, -1.58], [39.81, 6.4], [42.54, 11.87], [38.06, 21.22], [44.65, 32.18], [34.54, 27.38], [32.52, 32.18], [-4.04, 34.89], [-6.94, 25.64], [-14.06, 19.06]   ]]);
+//Obtain countries in Africa with WorldPop data by filtering the Countries FeatureCollection using the polygon
+var Africa = Countries.filterBounds(polygonAfrica);
+Map.addLayer(Africa, {}, 'African countries\' boundaries');
+//Create a polygon that intersects the countries in Asia with WorldPop data
+var polygonAsia = ee.Geometry.Polygon([[   [102.66, 48.47], [81.91, 39.92], [74.18, 41.52], [63.11, 30.31], [77.61, 37.8], [86.924, 36.106], [84.99, 27.766], [89.868, 35.25], [96.68, 33.44], [100.459, 27.376], [101.87, 20.39], [101.43, 9.54], [98.09, 3.25], [113.91, -15.44], [128.67, -9.26], [143.61, -10.12], [164.53, -15.77], [171.04, -22.25], [-164.18, -12.19], [121.11, 17.06], [115.66, 25.32], [119.18, 26.9], [129.73, 26.27], [136.14, 35.1], [124.28, 36.81]    ]]);
+//Obtain countries in Asia with WorldPop data by filtering the Countries FeatureCollection using the polygon
+var Asia = Countries.filterBounds(polygonAsia)
+//And merge boundaries from Georgia, Sri Lanka and Bangladesh. These countries were far from the Asia polygon
+.merge(Countries.filterMetadata('Country', 'equals', 'Georgia'))
+.merge(Countries.filterMetadata('Country', 'equals', 'Bangladesh'))
+.merge(Countries.filterMetadata('Country', 'equals', 'Sri Lanka'));
+Map.addLayer(Asia, {color: 'E6E600'}, 'Asian countries\' boundaries');
+
+//Merge the three polygons to create a FeatureCollection that contains only the countries with WorldPop info
+var countryBoundaries = America.merge(Africa).merge(Asia);
+
+//CREATE A FUNCTION TO COMPUTE SUM OF PIXELS OF AN IMAGE
+//The sum is function of an image (or mosaicked images) to be processed, a feature that delimits it and a georeferenced image to specify the resolution in meters.
+var sumPixels = function(ImageToProcess, boundaryFeature, ReferenceImageForScale)
+{
+  var sumofPixels = ImageToProcess.reduceRegion
+  ({
+   //Use the reducer .sum() to compute the sum of all pixels
+  reducer: ee.Reducer.sum(),
+  //within a feature
+  geometry: boundaryFeature,
+  //Specify a large number to allow the calculation. By default, it considers maximum 1e7 pixels
+  maxPixels: 1e15,
+  //Specify a scale for the mosaic of images from one of the images. 
+  scale: ReferenceImageForScale.projection().nominalScale()
+  });
+  return sumofPixels;
+};
+
+//POPULATION MAP
+//From WorldPop Database
+var WorldPopUNadj2010 = ee.ImageCollection('WorldPop/POP')
+//select only data that matches United Nations estimates
+	.filterMetadata('UNadj', 'equals', 'yes')
+//from 2010
+	.filterMetadata('year', 'equals', 2010);
+//Create a mosaic of the images that contain the selected population information
+var MEX = ee.Image('WorldPop/POP/MEX_2010_UNadj');
+var WorldPopMask = WorldPopUNadj2010.mosaic()
+//and clip it to the extents of the countryBoundaries featureCollection
+.clip(countryBoundaries);
+//Mask the mosaic to get rid of the 0's. Where the image in parenthesis has 0's, the image to be processed will have masked pixels
+var WorldPop = WorldPopMask.mask(WorldPopMask);
+print('WorldPop mosaicked map resolution [m]: ', WorldPopMask.projection().nominalScale());
+print('Individual WorldPop map resolution [m]: ', MEX.projection().nominalScale());
+Map.addLayer(WorldPop, {palette: '997A3D, FFCC66'}, 'WorldPop');
+//Obtain the sum of the population of the countries in America, Africa and Asia using the created sumPixels function
+//First argument: Image's pixels to be summed, 2nd: boundary, 3rd: georeferenced image to set scale (Mexico, for example, but could be any country within the WorldPop ImageCollection)
+var AmericaTotalPop = sumPixels(WorldPop, America, MEX);
+var AfricaTotalPop = sumPixels(WorldPop, Africa, MEX);
+var AsiaTotalPop = sumPixels(WorldPop, Asia, MEX);
+print(AmericaTotalPop, 'America');
+print(AfricaTotalPop, 'Africa');
+print(AsiaTotalPop, 'Asia');
+
+//Create one population image for each continent with a single band containg its total population
+var WorldPopTotal = ee.Image(4064420871)
+//Rename band 'constant' to 'Total_pop'
+.select(['constant'],['Total_pop']);
+
+//LUMINOSITY MAP
+//Load a 2010 nightlights image and select the band that contains sites with persistent lighting
+var AllNightlights = ee.Image('NOAA/DMSP-OLS/NIGHTTIME_LIGHTS/F182010').select('stable_lights');
+//Mask the image with itself to get rid of the 0's.
+//Where the image between parentheses has a 0, the image before the ".mask" will have no data.
+var NightlightsMasked = AllNightlights.mask(AllNightlights);
+//Log the image.
+var NightlightsLog = NightlightsMasked.log10();
+//Clip the nightlights image to only the countries of interest
+var Nightlights = NightlightsLog.clip(countryBoundaries);
+print('Nighlights map resolution [m]: ', NightlightsLog.projection().nominalScale());
+Map.addLayer(Nightlights, {palette: '333300, E6E600'}, 'Logged Nighlights');
+//Sum the pixel values of the map to obtain logged luminosity using the function sumPixels
+var NLsubTotal = sumPixels(Nightlights, countryBoundaries, AllNightlights);
+print(NLsubTotal, 'World\'s total logged luminosity');
+//Create a constant image with one band named 'constant' that contains World's logged luminosity
+var NLTotal = ee.Image(9021867.141333306)
+//Rename band 'constant' to 'Log_lum'
+.select(['constant'],['Log_lum']);
+
+
+//GDP-PPP
+//Create a constant image with one band named 'constant' that contains Mexico's GDP-PPP in current USD billions (taken from World Bank)
+var MexGDP = ee.Image(1731.75)
+//Rename band 'constant' to 'GDP-PPP'
+.select(['constant'],['GDP-PPP']);
+
+/*
+// ---- Exposure using the population method
+var ExpPopMethod_constant = MexGDP.select('GDP-PPP').divide(MexPopTotal.select('Total_pop'));
+var ExpPopMethod = ExpPopMethod_constant.multiply(MexPop.select('population'));
+Map.addLayer(ExpPopMethod, {min:0.000001, max:0.00001, palette: '990000, FF6666'}, 'Exposure using Population Method');
+
+// ---- Exposure using the standard luminosity method
+var ExpLumMethod_constant = MexGDP.select('GDP-PPP').divide(MexNLTotal.select('Log_lum'));
+var ExpLumMethod = ExpLumMethod_constant.multiply(MexNightlightsLog.select('stable_lights'));
+Map.addLayer(ExpLumMethod, {min:0.01, max:0.1, palette: '808000, FFFF66'}, 'Exposure using Standard-Luminosity Method');
+
+//Agricultural areas (croplands only) from 2010 MODIS image
+//Load 2010 MODIS Land Cover Type product (MCD12Q1)
+var MODIS_landcover = ee.Image('MODIS/051/MCD12Q1/2010_01_01')
+//Reproject it to align pixels that are 500 m to a side
+.reproject('EPSG:4326', null, 500)
+//and select the band with the IGBP classification
+.select('Land_Cover_Type_1')
+//Select the croplands (IGBP = 12), so everything else will be 0's.
+.eq(12);
+//Mask the image with itself to get rid of the 0's. Where the right value has 0's, the left 
+var WorldCroplands = MODIS_landcover.mask(MODIS_landcover);
+//Clip the cropland image with the Mexico contour
+var MexCroplands = WorldCroplands.clip(MexContour);
+Map.addLayer(MexCroplands, {palette: '006B00'}, 'Croplands');
+print('Cropland map resoluton [m]: ', MexCroplands.projection().nominalScale());
+
+// ---------- VULNERABILITY MAP [%] ------------
+
+//Create a function that transforms flood depths 0-3 m into 0-100% damage
+var vulnerability = function(floodmap)
+{
+  //Transform the inundation depths to percentages where 3m is 100%
+  var percentage = floodmap.divide(3);
+  //Set all values less than or equal to 1 to be 1, the rest will be 0's
+  var binary = percentage.lte(1);
+  //Mask it with itself to get rid of the 0's
+  //Where the image between parentheses has a 0, the image before the ".mask" will have no data.
+  var constant = binary.mask(binary);
+  //We now have a constant map with 1's.
+  //Multiply the constant map by the percentages map
+  var vulnerabilityMap = constant.multiply(percentage);
+  return vulnerabilityMap;
+};
+
+var TR5vby = vulnerability(TR5);
+var TR10vby = vulnerability(TR10);
+var TR20vby = vulnerability(TR20);
+var TR50vby = vulnerability(TR50);
+var TR75vby = vulnerability(TR75);
+var TR100vby = vulnerability(TR100);
+var TR200vby = vulnerability(TR200);
+var TR250vby = vulnerability(TR250);
+var TR500vby = vulnerability(TR500);
+var TR1000vby = vulnerability(TR1000);
+
+//Display the vulnerability map for Tr = 50 years
+Map.addLayer(TR50vby, {palette: '000080, 0000FF'}, 'Vulnerability T= 50 years');
+print('vulnerability maps resolution [m]: ', TR50vby.projection().nominalScale());
+
+// ---------- FINAL MAP ------------
+
+var EADtr50Pop = TR50.multiply(ExpPopMethod).multiply(TR50vby);
+var EADtr50Lum = TR50.multiply(ExpLumMethod).multiply(TR50vby);
+
+Map.addLayer(EADtr50Pop, {palette: '6B00B2, AD33FF'}, 'EAD using Population Method, USD billion');
+Map.addLayer(EADtr50Lum, {palette: 'B800B8, DB4DDB'}, 'EAD using Standard Luminosity Method, USD billion');
+*/

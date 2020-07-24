@@ -1,0 +1,176 @@
+// ---------- HAZARD MAPS [BINAY WET/DRY] ------------
+
+//Images for all return periods. The image ID ('GME/images/...') allows it to be imported to any script in EE.
+var tr5   = ee.Image('GME/images/14065153276599341228-07964712130599098121');
+var tr10  = ee.Image('GME/images/14065153276599341228-04837184006656219688');
+var tr20  = ee.Image('GME/images/14065153276599341228-04069492940774464340');
+var tr50  = ee.Image('GME/images/14065153276599341228-05039038523903420493');
+var tr75  = ee.Image('GME/images/14065153276599341228-16047606221156071538');
+var tr100 = ee.Image('GME/images/14065153276599341228-17684923510499887976');
+var tr200 = ee.Image('GME/images/14065153276599341228-03025517013162710200');
+var tr250 = ee.Image('GME/images/14065153276599341228-13584681123402671005');
+var tr500 = ee.Image('GME/images/14065153276599341228-09738046941629979352');
+var tr1000= ee.Image('GME/images/14065153276599341228-04222244774565817296');
+
+//Each image contains -9999 (no inundation) and 999 (water body) values.
+//Create a function that maps only inundation depth values from a given "myimage"
+var GetFloodDepths = function(myimage)
+{
+  //Where "myimage" equals -9999 (no inundation), the function returns a 0. Otherwise return "myimage" values:
+  var Blank = myimage.where(myimage.eq(-9999), 0)
+  //Where "myimage" equals 999 (water body), the function returns a 0. Otherwise return "myimage" values.
+  //.and() returns 1 where there are values different from 0 in BOTH images.
+  .and(myimage.where(myimage.eq(999),0));
+  //Until now, we have a binary wet (1's)/dry (0's) map.
+  
+  //Leave only the 1's by masking the map with itself. 
+  //Where the image between parentheses has a 0, the image before the ".mask" will have no data.
+  var FloodDepths = Blank.mask(Blank);
+  
+  return FloodDepths;
+};
+
+//Apply the function to all maps.
+var TR5 = GetFloodDepths(tr5);
+var TR10 = GetFloodDepths(tr10);
+var TR20 = GetFloodDepths(tr20);
+var TR50 = GetFloodDepths(tr50);
+var TR75 = GetFloodDepths(tr75);
+var TR100 = GetFloodDepths(tr100);
+var TR200 = GetFloodDepths(tr200);
+var TR250 = GetFloodDepths(tr250);
+var TR500 = GetFloodDepths(tr500);
+var TR1000 = GetFloodDepths(tr1000);
+
+//Display the binary 50-year floodplain.
+Map.addLayer(TR50, {palette: '003D99, 4D94FF'}, 'Floodplain extension T= 50 years');
+print('Floodplain maps resolution [m]: ', TR50.projection().nominalScale());
+
+// ---------- EXPOSURE MAPS [BILLION CURRENT USD] ------------
+
+//Select the country contour from a Feature Collection
+var MexContour = ee.FeatureCollection('ft:1tdSwUL7MVpOauSgRzqVTOwdfy17KDbw-1d9omPw').filterMetadata('Country', 'equals', 'Mexico');
+
+//Population
+//Load population for Mexico for 2010 from WorldPop database, adjusted to adjusted to match UN national estimates
+var MexPop_tobeMasked = ee.Image('WorldPop/POP/MEX_2010_UNadj');
+//and mask it with itself
+var MexPop = MexPop_tobeMasked.mask(MexPop_tobeMasked);
+Map.addLayer(MexPop, {palette: '663D00, FFCC66'}, 'Population 2010');
+print('Population map resolution [m]: ', MexPop.projection().nominalScale());
+//Sum the pixel values of the map to obtain total population using a Reducer.
+var MexPopsubTotal = MexPop.reduceRegion
+({
+  //Use the reducer to compute the sum of all pixels
+  reducer: ee.Reducer.sum(),
+  //...within the specified boundary
+  geometry: MexContour,
+  //Specify a really large number to allow the calculation. By default, it considers maximum 1e7 pixels
+  maxPixels: 5e9
+});
+print(MexPopsubTotal, 'Mexico\'s total population 2010');
+//Create a constant image with one band named 'constant' that contains Mexico's total population
+var MexPopTotal = ee.Image(104315392.24)
+//Rename band 'constant' to 'Total_pop'
+.select(['constant'],['Total_pop']);
+
+//Luminosity Map
+//Load a 2010 nightlights image and select the band that contains sites with persistent lighting
+var nl2010 = ee.Image('NOAA/DMSP-OLS/NIGHTTIME_LIGHTS/F182010').select('stable_lights');
+//Clip the nightlights image with the Mexico contour
+var MexAllLights = nl2010.clip(MexContour);
+//Mask the image with itself to get rid of the 0's.
+//Where the image between parentheses has a 0, the image before the ".mask" will have no data.
+var MexNightlights = MexAllLights.mask(MexAllLights);
+//Log the image.
+var MexNightlightsLog = MexNightlights.log10();
+Map.addLayer(MexNightlightsLog, {palette: '333300, E6E600'}, 'Logged Nighlights');
+print('Nighlights map resolution [m]: ', MexNightlights.projection().nominalScale());
+//Sum the pixel values of the map to obtain logged luminosity
+var MexNLsubTotal = MexNightlightsLog.reduceRegion
+({
+  //Use the reducer .sum() to compute the sum of all pixels
+  reducer: ee.Reducer.sum(),
+  //within the specified boundary
+  geometry: MexContour,
+  //Specify a large number to allow the calculation. By default, it considers maximum 1e7 pixels
+  maxPixels: 5e9
+});
+print(MexNLsubTotal, 'Mexico\'s total logged luminosity');
+//Create a constant image with one band named 'constant' that contains Mexico's logged luminosity
+var MexNLTotal = ee.Image(624496.31)
+//Rename band 'constant' to 'Log_lum'
+.select(['constant'],['Log_lum']);
+
+//GDP-PPP
+//Create a constant image with one band named 'constant' that contains Mexico's GDP-PPP in current USD billions (taken from World Bank)
+var MexGDP = ee.Image(1731.75)
+//Rename band 'constant' to 'GDP-PPP'
+.select(['constant'],['GDP-PPP']);
+
+// ---- Exposure using the population method
+var ExpPopMethod_constant = MexGDP.select('GDP-PPP').divide(MexPopTotal.select('Total_pop'));
+var ExpPopMethod = ExpPopMethod_constant.multiply(MexPop.select('population'));
+Map.addLayer(ExpPopMethod, {min:0.000001, max:0.00001, palette: '990000, FF6666'}, 'Exposure using Population Method');
+
+// ---- Exposure using the standard luminosity method
+var ExpLumMethod_constant = MexGDP.select('GDP-PPP').divide(MexNLTotal.select('Log_lum'));
+var ExpLumMethod = ExpLumMethod_constant.multiply(MexNightlightsLog.select('stable_lights'));
+Map.addLayer(ExpLumMethod, {min:0.00001, max:.01, palette: '808000, FFFFCC'}, 'Exposure using Standard-Luminosity Method');
+
+//Agricultural areas (croplands only) from 2010 MODIS image
+//Load 2010 MODIS Land Cover Type product (MCD12Q1)
+var MODIS_landcover = ee.Image('MODIS/051/MCD12Q1/2010_01_01')
+//Reproject it to align pixels that are 500 m to a side
+.reproject('EPSG:4326', null, 500)
+//and select the band with the IGBP classification
+.select('Land_Cover_Type_1')
+//Select the croplands (IGBP = 12), so everything else will be 0's.
+.eq(12);
+//Mask the image with itself to get rid of the 0's. Where the right value has 0's, the left 
+var WorldCroplands = MODIS_landcover.mask(MODIS_landcover);
+//Clip the cropland image with the Mexico contour
+var MexCroplands = WorldCroplands.clip(MexContour);
+Map.addLayer(MexCroplands, {palette: '006B00'}, 'Croplands');
+print('Cropland map resoluton [m]: ', MexCroplands.projection().nominalScale());
+
+// ---------- VULNERABILITY MAP [%] ------------
+
+//Create a function that transforms flood depths 0-3 m into 0-100% damage
+var vulnerability = function(floodmap)
+{
+  //Transform the inundation depths to percentages where 3m is 100%
+  var percentage = floodmap.divide(3);
+  //Set all values less than or equal to 1 to be 1, the rest will be 0's
+  var binary = percentage.lte(1);
+  //Mask it with itself to get rid of the 0's
+  //Where the image between parentheses has a 0, the image before the ".mask" will have no data.
+  var constant = binary.mask(binary);
+  //We now have a constant map with 1's.
+  //Multiply the constant map by the percentages map
+  var vulnerabilityMap = constant.multiply(percentage);
+  return vulnerabilityMap;
+};
+
+var TR5vby = vulnerability(TR5);
+var TR10vby = vulnerability(TR10);
+var TR20vby = vulnerability(TR20);
+var TR50vby = vulnerability(TR50);
+var TR75vby = vulnerability(TR75);
+var TR100vby = vulnerability(TR100);
+var TR200vby = vulnerability(TR200);
+var TR250vby = vulnerability(TR250);
+var TR500vby = vulnerability(TR500);
+var TR1000vby = vulnerability(TR1000);
+
+//Display the vulnerability map for Tr = 50 years
+Map.addLayer(TR50vby, {min:0.001, max: 0.5, palette: '000080, 0000FF'}, 'Vulnerability T= 50 years');
+print('vulnerability maps resolution [m]: ', TR50vby.projection().nominalScale());
+
+// ---------- FINAL MAP ------------
+
+var EADtr50Pop = TR50.multiply(ExpPopMethod).multiply(TR50vby);
+var EADtr50Lum = TR50.multiply(ExpLumMethod).multiply(TR50vby);
+
+Map.addLayer(EADtr50Pop, {palette: '6B00B2, AD33FF'}, 'EAD using Population Method, USD billion');
+Map.addLayer(EADtr50Lum, {min:0, max: 2000000, palette: 'B800B8, DB4DDB'}, 'EAD using Standard Luminosity Method, USD billion');
